@@ -1,0 +1,17 @@
+{
+  "name": "呆唯 · 手臂大回旋",
+  "fps": 30,
+  "frame_count": 21,
+  "duration": 0.7,
+  "source_interval": [
+    71,
+    71.7
+  ],
+  "reference_interval": [
+    71,
+    72
+  ],
+  "source": "user-supplied 892734230-1-208.mp4",
+  "crop": "half-body",
+  "method": "original video poses, pose-guided foreground matting; no redrawing"
+}

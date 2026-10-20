@@ -1,0 +1,24 @@
+{
+  "id": "roll",
+  "name": "趴地打滚",
+  "source": "output/roll-body-alpha",
+  "profile": "alpha",
+  "composition": "close-up",
+  "anchor": "none",
+  "max_size": 480,
+  "padding": 20,
+  "button_label": "打个滚",
+  "bubble": "再滚一下就起来～",
+  "playback": {
+    "weights": {
+      "daily": 25,
+      "music": 1
+    },
+    "cycles": [
+      1,
+      2
+    ],
+    "cooldown_seconds": 90,
+    "manual_cycles": 2
+  }
+}

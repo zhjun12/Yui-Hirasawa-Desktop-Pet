@@ -1,0 +1,16 @@
+{
+  "id": "new_gesture",
+  "name": "新动作名称",
+  "source": "D:/素材/动画.gif",
+  "profile": "alpha",
+  "composition": "half-body",
+  "max_size": 480,
+  "padding": 20,
+  "button_label": "播放这个动作",
+  "playback": {
+    "weights": {"daily": 10, "music": 0},
+    "cycles": [1, 2],
+    "cooldown_seconds": 90,
+    "manual_cycles": 2
+  }
+}

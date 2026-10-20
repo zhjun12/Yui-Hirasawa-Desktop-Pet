@@ -1,0 +1,14 @@
+{
+  "name": "啃玉米",
+  "frame_count": 4,
+  "durations_ms": [
+    80,
+    80,
+    80,
+    80
+  ],
+  "duration_ms": 320,
+  "source_sha256": "a2ede04b10b0112b2315e15d7948b329e1041388d18c90f401a594dd84bf1d73",
+  "source": "user-supplied GIF",
+  "method": "original GIF frames with foreground matting"
+}
