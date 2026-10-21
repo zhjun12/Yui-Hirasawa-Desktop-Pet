@@ -5,6 +5,7 @@ dist/
 stage/
 output/
 data/
+/tmp*/
 *.spec
 *.log
 

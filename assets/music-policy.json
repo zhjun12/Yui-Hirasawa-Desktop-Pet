@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "allow_repeat": true,
+  "actions": {
+    "sing_guitar": {"share": 45, "cycles": [19, 30], "cooldown_seconds": 0},
+    "spin": {"share": 45, "cycles": [65, 105], "cooldown_seconds": 0},
+    "listen": {"share": 8, "hold_seconds": [25, 40], "cooldown_seconds": 0},
+    "roll": {"share": 1, "cycles": [1, 2], "cooldown_seconds": 120, "cooldown_group": "occasional"},
+    "stretch": {"share": 1, "cycles": [1, 2], "cooldown_seconds": 120, "cooldown_group": "occasional"}
+  },
+  "weak": {
+    "allow_repeat": true,
+    "actions": {
+      "sing_guitar": {"share": 9, "cycles": [19, 30], "cooldown_seconds": 0},
+      "spin": {"share": 9, "cycles": [65, 105], "cooldown_seconds": 0},
+      "listen": {"share": 80, "hold_seconds": [45, 75], "cooldown_seconds": 0},
+      "roll": {"share": 1, "cycles": [1, 2], "cooldown_seconds": 120, "cooldown_group": "occasional"},
+      "stretch": {"share": 1, "cycles": [1, 2], "cooldown_seconds": 120, "cooldown_group": "occasional"}
+    }
+  }
+}

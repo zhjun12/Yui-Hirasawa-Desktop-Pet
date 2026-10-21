@@ -4,7 +4,7 @@ import zipfile
 
 root = Path(__file__).resolve().parents[1]
 folder = root / 'dist' / 'YuiCompanion'
-archive = folder.parent / '平泽唯桌宠-测试版0.7.1.zip'
+archive = folder.parent / '平泽唯桌宠-测试版0.8.2.zip'
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as out:
     for file in sorted(folder.rglob('*')):
         relative = file.relative_to(folder)

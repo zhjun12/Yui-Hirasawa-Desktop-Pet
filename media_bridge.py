@@ -7,7 +7,42 @@ import asyncio
 import ctypes
 from ctypes import wintypes
 import queue
+import os
 from PySide6.QtCore import QThread, Signal
+
+
+def cloud_process_running():
+    """Distinguish a lost media session from a client that really exited."""
+    import psutil
+    kernel=ctypes.windll.kernel32
+    current=wintypes.DWORD()
+    kernel.ProcessIdToSessionId(os.getpid(),ctypes.byref(current))
+    try:
+        for process in psutil.process_iter(['name']):
+            if (process.info.get('name') or '').lower()=='cloudmusic.exe':
+                session=wintypes.DWORD()
+                if kernel.ProcessIdToSessionId(process.pid,ctypes.byref(session)) and session.value==current.value:
+                    return True
+        return False
+    except (psutil.Error,OSError):
+        return None
+
+
+async def read_artwork(reference):
+    if reference is None: return None
+    from winrt.windows.storage.streams import DataReader
+    stream=reader=None
+    try:
+        stream=await reference.open_read_async()
+        if not 0<stream.size<=2*1024*1024: return None
+        reader=DataReader(stream.get_input_stream_at(0))
+        loaded=await reader.load_async(int(stream.size))
+        buffer=bytearray(loaded)
+        reader.read_bytes(buffer)
+        return bytes(buffer)
+    finally:
+        if reader is not None: reader.close()
+        if stream is not None: stream.close()
 
 
 def cloud_windows():
@@ -66,6 +101,7 @@ class MediaBridge(QThread):
         self.commands = queue.Queue()
         self.loop = None
         self.wake = None
+        self.artwork_cache={}
 
     def request(self, target, command, position=None):
         self.commands.put((target, command, position))
@@ -121,7 +157,14 @@ class MediaBridge(QThread):
                             timeline = session.get_timeline_properties()
                             position = timeline.position.total_seconds()
                             duration = timeline.end_time.total_seconds()
+                            identity=(props.title,props.artist,props.album_title)
+                            cached=self.artwork_cache.get(appid)
+                            if cached is None or cached[0]!=identity:
+                                try: artwork=await asyncio.wait_for(read_artwork(props.thumbnail),1)
+                                except Exception: artwork=None
+                                self.artwork_cache[appid]=(identity,artwork)
                             row = dict(id=appid, label=appid, kind='smtc', title=props.title,
+                                album=props.album_title,artwork=self.artwork_cache[appid][1],
                                 artist=props.artist, playing=(True if int(info.playback_status) == 4 else
                                     False if int(info.playback_status) in (3, 5) else None),
                                 status=int(info.playback_status), position=position, duration=duration,
@@ -179,7 +222,9 @@ class MediaBridge(QThread):
                             self.feedback.emit('播放器已接受控制。' if success else '播放器未接受控制，请在客户端重试。')
                     except Exception as exc:
                         self.feedback.emit(str(exc))
-                self.snapshot.emit({'sessions': rows, 'error': error})
+                active_ids={row['id'] for row in rows}
+                self.artwork_cache={key:value for key,value in self.artwork_cache.items() if key in active_ids}
+                self.snapshot.emit({'sessions': rows, 'error': error,'cloud_running':cloud_process_running()})
                 self.wake.clear()
                 try:
                     await asyncio.wait_for(self.wake.wait(), 1)

@@ -1,0 +1,35 @@
+{
+  "id": "sing_guitar",
+  "name": "弹吉他唱歌",
+  "source": "output/singing-guitar-recovered",
+  "profile": "alpha",
+  "composition": "half-body",
+  "anchor": "none",
+  "max_size": 480,
+  "padding": 20,
+  "button_label": "弹吉他唱歌",
+  "bubble": "一起唱吧～♪",
+  "playback": {
+    "weights": {
+      "daily": 0,
+      "music": 1
+    },
+    "cycles": [
+      1,
+      2
+    ],
+    "cooldown_seconds": 90,
+    "manual_cycles": 2
+  },
+  "reference_video": "31531667175_u1-1-192.mp4",
+  "reference_interval": [
+    10,
+    13
+  ],
+  "expressions": "保留原片张嘴唱歌、眨眼和视线变化，不新增绘制表情",
+  "edge_revision": "吉他与手部像素恢复：按原片琴颈双边界恢复琴弦、白色配件与手指；原镲片遮挡处少量借用同段视频对齐纹理修补；清理字幕和背景块。用户已同意局部补像素。",
+  "selected_interval": [
+    10.036,
+    12.472
+  ]
+}

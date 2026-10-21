@@ -128,8 +128,28 @@ class EdgeDock(QObject):
 
     def persist(self):
         position = self.restore_position if self.inactive else self.pet.pos()
+        if self.pet is not self.c.pet:
+            self.pet.persist_position(position)
+            return
         self.c.store.data['position'] = [position.x(),position.y()]
         self.c.save()
+
+    def set_surface(self,surface):
+        self.stop_transition()
+        if self.hidden: self.pet.move(self.restore_position)
+        self.pet.hide()
+        self.pet.setWindowOpacity(1)
+        self.pet=surface
+        self.restore_position=clamp_position(surface.pos(),surface.size(),self.area())
+        surface.move(self.restore_position)
+        if self.hidden:
+            surface.hide()
+            self.show_label()
+        else:
+            self.label.hide()
+            surface.setWindowOpacity(1)
+            surface.show()
+            self.resume()
 
     def try_hide(self, cursor):
         if not self.c.store.data['edge_hide'] or self.inactive:
@@ -174,13 +194,14 @@ class EdgeDock(QObject):
         return end
 
     def collapse(self, edge):
+        if hasattr(self.pet,'prepare_dock'): self.pet.prepare_dock()
         self.edge = edge
         self.restore_position = clamp_position(self.pet.pos(),self.pet.size(),self.area())
         self.hidden = True
         self.c.animation.set_suspended(True)
-        self.pet.animation_timer.stop()
-        self.pet.message = ''
-        self.pet.last_signature = None
+        self.c.pet.animation_timer.stop()
+        self.c.pet.message = ''
+        self.c.pet.last_signature = None
         self.pet.update()
         self.place_label(self.pet.geometry().center()-QPoint(58,19))
         self.show_label()
@@ -212,10 +233,10 @@ class EdgeDock(QObject):
 
     def resume(self):
         self.c.animation.set_suspended(False)
-        self.pet.last_motion_time = time.monotonic()
-        self.pet.last_signature = None
-        self.pet.refresh()
-        self.pet.animation_timer.start(33)
+        self.c.pet.last_motion_time = time.monotonic()
+        self.c.pet.last_signature = None
+        self.c.pet.refresh()
+        self.c.pet.animation_timer.start(33)
 
     def restore(self, animated=True):
         if not self.inactive:

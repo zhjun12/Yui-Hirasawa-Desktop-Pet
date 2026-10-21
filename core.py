@@ -8,6 +8,7 @@ import random
 from pathlib import Path
 import time
 from urllib.parse import urlparse
+from music_policy import validate_music_policy, MusicIntensity
 
 AUDIO_EXTENSIONS = {'.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.wma'}
 MODES = ('auto', 'idle', 'daydream', 'listen', 'spin', 'eat', 'quiet')
@@ -30,7 +31,8 @@ class Store:
         self.data = dict(size=280, topmost=True, volume=55, tracks=[], links=[],
                          mode='auto', loop=0, focus=25, rest=5, reminders=False,
                          interval=60, sound=True, bubbles=True, drive=True,
-                         system_audio=False, music_source='local', cloud_target='', edge_hide=True)
+                         system_audio=False, music_source='local', cloud_target='', edge_hide=True,
+                         music_auto=True,music_positions={},music_sizes={},music_bubbles={})
         try:
             loaded = json.loads(path.read_text(encoding='utf-8'))
             if not isinstance(loaded, dict):
@@ -46,7 +48,7 @@ class Store:
             v = self.data[key]
             self.data[key] = max(low, min(high, v)) if type(v) is int else default
         for key, default in [('topmost', True), ('reminders', False), ('sound', True), ('bubbles', True),
-                             ('drive', True), ('system_audio', False), ('edge_hide', True)]:
+                             ('drive', True), ('system_audio', False), ('edge_hide', True),('music_auto',True)]:
             if type(self.data[key]) is not bool:
                 self.data[key] = default
         if self.data['mode'] == 'guitar':
@@ -73,6 +75,15 @@ class Store:
         pos = self.data.get('position')
         if not (isinstance(pos, list) and len(pos) == 2 and all(type(v) is int for v in pos)):
             self.data.pop('position', None)
+        for field in ('music_positions','music_sizes'):
+            value=self.data[field]
+            self.data[field]={key:pair for key,pair in value.items()
+                if key in ('mini','expanded','companion') and isinstance(pair,list) and len(pair)==2
+                and all(type(n) is int and abs(n)<100000 for n in pair)} if isinstance(value,dict) else {}
+        value=self.data['music_bubbles']
+        self.data['music_bubbles']={key:pair for key,pair in value.items()
+            if key in ('previous','toggle','next') and isinstance(pair,list) and len(pair)==2
+            and all(type(n) is int and abs(n)<100000 for n in pair)} if isinstance(value,dict) else {}
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,10 +161,96 @@ class Animation:
         self._cooldowns = {}
         self._last_burst = None
         self._pending = None
+        self.music_policy = None
+        self.music_spent = {}
+        self._music_account_state = None
+        self._music_account_at = None
+        self._music_last_choice = None
+        self._music_cooldowns = {}
+        self._music_group_cooldowns={}
+        self.music_intensity=MusicIntensity()
+        self._music_profile='normal'
+        self._music_histories={}
+        self._music_profile_pending=None
 
     def reset_auto(self):
+        self._leave_music(self.clock())
         self._context = None
         self._pending = None
+        self._music_profile_pending=None
+
+    def configure_music(self, policy):
+        self.reset_auto()
+        self.music_policy = validate_music_policy(policy) if policy is not None else None
+        self.music_spent = {}
+        self._music_last_choice = None
+        self._music_cooldowns = {}
+        self._music_group_cooldowns={}
+        self.music_intensity=MusicIntensity()
+        self._music_profile='normal'
+        self._music_histories={'normal':self.music_spent}
+
+    def update_music_audio(self, now, level, onset=False):
+        self.music_intensity.update(now,level,onset)
+
+    def _music_rules(self):
+        if self._music_profile=='weak' and 'weak' in self.music_policy:
+            return self.music_policy['weak']
+        return self.music_policy
+
+    def _account_music(self, now):
+        if self._music_account_state is not None and self._music_account_at is not None:
+            seconds=max(0.,min(now,self._deadline)-self._music_account_at)
+            key=self._music_account_state
+            self.music_spent[key]=self.music_spent.get(key,0.)+seconds
+        self._music_account_at=now
+
+    def _leave_music(self, now):
+        self._account_music(now)
+        key=self._music_account_state
+        if key is not None and self.music_policy is not None:
+            rule=self._music_rules()['actions'].get(key)
+            if rule is not None:
+                self._music_cooldowns[key]=min(now,self._deadline)+rule['cooldown_seconds']
+                if 'cooldown_group' in rule:
+                    self._music_group_cooldowns[rule['cooldown_group']]=self._music_cooldowns[key]
+        self._music_account_state=None
+        self._music_account_at=None
+
+    def _music_next(self, now):
+        self._leave_music(now)
+        self._music_profile=self.music_intensity.profile if 'weak' in self.music_policy else 'normal'
+        self.music_spent=self._music_histories.setdefault(self._music_profile,{})
+        rules=self._music_rules()
+        available={key:rule for key,rule in rules['actions'].items()
+                   if (key in {'listen','idle'} or key in self.loop_seconds)
+                   and ('hold_seconds' in rule or key in self.loop_seconds)}
+        pool=[key for key,rule in available.items() if self._music_cooldowns.get(key,0)<=now
+              and self._music_group_cooldowns.get(rule.get('cooldown_group'),0)<=now]
+        if len(pool)>1 and not rules['allow_repeat']:
+            pool=[key for key in pool if key!=self._music_last_choice]
+        if not pool:
+            self._auto='listen'
+            self.entered_at=now
+            self._deadline=now+1
+            return
+        total=sum(self.music_spent.get(key,0.) for key in available)
+        shares=sum(rule['share'] for rule in available.values())
+        debt={key:total*available[key]['share']/shares-self.music_spent.get(key,0.) for key in pool}
+        best=max(debt.values())
+        tied=[key for key in pool if abs(debt[key]-best)<1e-8]
+        key=self.rng.choices(tied,[available[key]['share'] for key in tied])[0]
+        rule=available[key]
+        if 'cycles' in rule:
+            duration=self.loop_seconds[key]*self.rng.randint(*rule['cycles'])
+        else:
+            duration=self.rng.uniform(*rule['hold_seconds'])
+        self._auto=key
+        self.entered_at=now
+        self._deadline=now+duration
+        self._music_last_choice=key
+        self._music_account_state=key
+        self._music_account_at=now
 
     def configure_actions(self, packs):
         self.action_rules = {key:rule for key,rule in self.action_rules.items()
@@ -184,8 +281,12 @@ class Animation:
         return 'listen' if context.startswith('music') else 'idle'
 
     def _rest(self, context, now):
+        self._leave_music(now)
         self._context = context
         self._pending = None
+        if context=='music' and self.music_policy is not None:
+            self._music_next(now)
+            return
         self._auto = self._baseline(context)
         self.entered_at = now
         low,high = (45,90) if context=='music' else (30,60)
@@ -215,12 +316,14 @@ class Animation:
         self._cooldowns[state] = self._deadline+rule['cooldown']
 
     def interact(self, state, seconds=3):
+        self._leave_music(self.clock())
         self.interaction_started = self.clock()
         self.temporary, self.until = state, self.interaction_started + seconds
         self._interacted = True
 
     def state(self):
         now = self.clock()
+        self._account_music(now)
         self._observe_music(now)
         config = (self.mode,self.follow_music,self.focus)
         if config != self._config:
@@ -259,8 +362,22 @@ class Animation:
                 self._rest(context,now)
         else:
             self._pending = None
+        if context=='music' and self.music_policy is not None and 'weak' in self.music_policy:
+            desired=self.music_intensity.profile
+            if desired!=self._music_profile:
+                if self._music_profile_pending is None or self._music_profile_pending[0]!=desired:
+                    cycle=self.loop_seconds.get(self._auto)
+                    boundary=(self.entered_at+math.ceil((now-self.entered_at)/cycle)*cycle) if cycle else now
+                    self._music_profile_pending=(desired,min(boundary,self._deadline))
+                if now>=self._music_profile_pending[1]:
+                    self._music_next(now)
+                    self._music_profile_pending=None
+            else:
+                self._music_profile_pending=None
         if now >= self._deadline:
-            if self._auto != self._baseline(context):
+            if context=='music' and self.music_policy is not None:
+                self._music_next(now)
+            elif self._auto != self._baseline(context):
                 self._rest(context,now)
             else:
                 self._burst(now)

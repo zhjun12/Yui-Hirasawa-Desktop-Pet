@@ -11,7 +11,7 @@ import time
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QUrl, QObject, Slot
 from PySide6.QtGui import (QAction, QBitmap, QColor, QDesktopServices, QFont, QIcon,
                            QImage, QPainter, QPainterPath, QPixmap, QRegion)
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QAudioBufferOutput, QAudioFormat, QAudioBuffer
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QAudioBufferOutput, QAudioFormat, QAudioBuffer, QMediaMetaData
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog,
     QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMenu,
@@ -25,6 +25,10 @@ from audio_motion import AudioFeatures, SystemAudio, MotionEnvelope
 from animation_renderer import ContinuousRenderer
 from edge_hide import EdgeDock
 from action_packs import discover_packs
+from music_policy import load_music_policy
+from music_mode import MusicModeState
+from music_view import MusicWindow
+from lyrics import song_key
 
 FROZEN = getattr(sys, 'frozen', False)
 ROOT = Path(sys.executable).parent if FROZEN else Path(__file__).resolve().parent
@@ -246,8 +250,11 @@ class Pet(QWidget):
         if hasattr(self.c, 'dock') and self.c.dock.inactive:
             return
         now = time.monotonic()
-        state = self.c.animation.state()
         level, onset = self.c.current_audio(now)
+        features=self.c.local_features if self.c.store.data['music_source']=='local' else self.c.system_features
+        valid=self.c.store.data['drive'] and self.c.animation.playing and now-features['time']<=.4
+        self.c.animation.update_music_audio(now,level if valid else None,onset)
+        state = self.c.animation.state()
         if onset:
             self.envelope.onset = 1
         phase, strength, pulse = self.envelope.update(now, self.c.animation.playing,
@@ -396,7 +403,7 @@ class Panel(QWidget):
         title = QLabel('放课后，和唯一起。')
         title.setObjectName('title')
         outer.addWidget(title)
-        sub = QLabel('YUI COMPANION   /   测试版 0.7.1')
+        sub = QLabel('YUI COMPANION   /   测试版 0.8.2')
         sub.setObjectName('sub')
         outer.addWidget(sub)
         self.tabs = QTabWidget()
@@ -579,6 +586,12 @@ class Panel(QWidget):
 
     def pet_tab(self):
         w, layout = self.page()
+        self.music_button=button('进入音乐陪伴模式',self.c.enter_music_mode)
+        layout.addWidget(self.music_button)
+        self.music_auto=QCheckBox('打开网易云时自动进入音乐桌宠模式')
+        self.music_auto.setChecked(self.c.store.data['music_auto'])
+        self.music_auto.toggled.connect(self.c.set_music_auto)
+        layout.addWidget(self.music_auto)
         layout.addWidget(note('点击头部摸摸头，点击身体打开面板。\n拖动调整位置，滚轮调整大小，右键打开菜单。'))
         self.mode = QComboBox()
         for key, name in NAMES.items():
@@ -594,7 +607,7 @@ class Panel(QWidget):
         self.drive.setChecked(self.c.store.data['drive'])
         self.drive.toggled.connect(self.c.set_drive)
         layout.addWidget(self.drive)
-        layout.addWidget(note('自动：日常等待 30～60 秒后偶尔做小动作；\n听歌以托腮为主，45～90 秒后偶尔大回旋。\n短动作按完整循环播放；专注时减少动作，互动结束后重新等待。'))
+        layout.addWidget(note('自动：日常等待 30～60 秒后偶尔做小动作。\n听歌主动作约45～73秒：弹吉他与大回旋各45%；弱音乐时托腮约80%。\n打滚、举手偶尔出现，共用2分钟冷却；完整循环后切换。'))
         layout.addLayout(row(button('摸摸头', self.c.pat), button('喂玉米', self.c.feed)))
         pack_buttons=[button(pack.button_label,lambda checked=False,key=key:self.c.play_gesture(key))
                       for key,pack in self.c.sprites.packs.items()]
@@ -727,6 +740,7 @@ class Controller(QObject):
         self.quitting = False
         self.services = data_path is None if services is None else services
         self.store = Store(data_path or ROOT / 'data' / 'settings.json',modes=NAMES)
+        self.music_state=MusicModeState()
         self.scanner = None
         self.last_import = None
         self.cloud_rows = []
@@ -748,7 +762,7 @@ class Controller(QObject):
         if self.animation.mode not in NAMES:
             self.animation.mode=self.store.data['mode']='auto'
         self.animation.configure_actions(self.sprites.packs)
-        self.action_errors=ACTION_ERRORS+self.sprites.pack_errors
+        self.action_errors=ACTION_ERRORS+self.sprites.pack_errors+self.configure_music_schedule()
         self.icon = QIcon(self.sprites.frames[0][0])
         self.app.setWindowIcon(self.icon)
         self.player = QMediaPlayer()
@@ -769,6 +783,7 @@ class Controller(QObject):
         self.player.durationChanged.connect(self.local_duration)
         self.pet = Pet(self)
         self.dock = EdgeDock(self, ASSETS / 'edge-label.png')
+        self.music=MusicWindow(self)
         self.panel.setWindowIcon(self.icon)
         self.tray = QSystemTrayIcon(self.icon, self.app)
         self.tray.setToolTip('平泽唯 · 放课后桌宠')
@@ -808,6 +823,8 @@ class Controller(QObject):
         self.panel.status.setToolTip(text)
         if hasattr(self, 'pet'):
             self.pet.say(text[:100], important=True, seconds=7)
+        if hasattr(self,'music') and self.music_state.active:
+            self.music.show_feedback(text)
 
     def open_panel(self):
         self.panel.showNormal()
@@ -817,12 +834,10 @@ class Controller(QObject):
     def find_pet(self):
         self.dock.restore(animated=False)
         area = QApplication.primaryScreen().availableGeometry()
-        self.pet.move(area.right() - self.pet.width() - 25, area.bottom() - self.pet.height() - 20)
-        self.pet.keep_visible()
-        self.pet.show()
-        self.pet.raise_()
-        self.store.data['position'] = [self.pet.x(), self.pet.y()]
-        self.save()
+        surface=self.dock.pet
+        surface.move(area.right()-surface.width()-25,area.bottom()-surface.height()-20)
+        surface.keep_visible();surface.show();surface.raise_()
+        self.dock.persist()
 
     def tray_activated(self, reason):
         if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
@@ -832,6 +847,9 @@ class Controller(QObject):
         menu = QMenu()
         menu.setStyleSheet(STYLE)
         menu.addAction('打开控制面板', self.open_panel)
+        music_action=menu.addAction('进入音乐陪伴模式',
+            lambda:self.leave_music_mode() if self.music_state.active else self.enter_music_mode())
+        menu.aboutToShow.connect(lambda:music_action.setText('返回普通桌宠' if self.music_state.active else '进入音乐陪伴模式'))
         menu.addAction('播放 / 暂停所选播放器', self.toggle_active)
         actions = menu.addMenu('情境与动作')
         for key, label in NAMES.items():
@@ -853,6 +871,80 @@ class Controller(QObject):
     def sync_menu(self, actions):
         for a, key in zip(actions.actions(), NAMES):
             a.setChecked(key == self.animation.mode)
+
+    def set_music_auto(self,value):
+        self.setting('music_auto',value)
+        if value:
+            self.music_state.suppressed=False
+            self.music_state.seen=False
+
+    def enter_music_mode(self,checked=False,cloud=False):
+        cloud=cloud or self.music_state.offered
+        if cloud:
+            row=next((row for row in self.cloud_rows if 'cloudmusic' in row['id'].lower() or 'netease' in row['id'].lower()),None)
+            self.store.data['cloud_target']=row['id'] if row else ''
+            self.cloud_info=row
+            self.set_music_source('cloud')
+        if self.music_state.active:
+            self.music.refresh()
+            return
+        self.dock.persist()
+        self.music_state.enter(self.store.data['music_source']=='cloud')
+        self.music.enter()
+        self.dock.set_surface(self.music)
+        if not self.dock.hidden: self.music.reveal_smoothly()
+        self.panel.music_button.setText('音乐陪伴模式已开启')
+
+    def leave_music_mode(self,checked=False,manual=True):
+        if not self.music_state.active: return
+        self.dock.persist()
+        self.music.dialog.hide()
+        if self.music.reveal: self.music.reveal.stop()
+        self.music.setWindowOpacity(1)
+        self.music_state.leave(manual)
+        self.dock.set_surface(self.pet)
+        self.panel.music_button.setText('进入音乐陪伴模式')
+
+    def observe_music_client(self,snapshot):
+        present=snapshot.get('cloud_running')
+        if present is None and any('cloudmusic' in row['id'].lower() or 'netease' in row['id'].lower() for row in self.cloud_rows):
+            present=True
+        local_playing=self.store.data['music_source']=='local' and self.player.playbackState()==QMediaPlayer.PlayingState
+        action=self.music_state.observe(time.monotonic(),present,self.store.data['music_auto'],local_playing)
+        if action=='enter': self.enter_music_mode(cloud=True)
+        elif action=='exit': self.leave_music_mode(manual=False)
+        elif action=='offer':
+            self.panel.music_button.setText('切换网易云并进入音乐模式')
+            self.tell('网易云已打开。本地音乐继续播放；可在「陪伴」点击切换网易云。')
+
+    def music_step(self,delta):
+        if self.store.data['music_source']=='local': self.step(delta)
+        else: self.cloud_command('next' if delta>0 else 'previous')
+
+    def music_song(self):
+        source=self.store.data['music_source']
+        if source=='local':
+            path=self.player.source().toLocalFile()
+            tracks=self.store.data['tracks']
+            metadata=self.player.metaData()
+            artists=metadata.value(QMediaMetaData.ContributingArtist) or []
+            artist=' / '.join(artists) if isinstance(artists,list) else str(artists)
+            return dict(source=source,key=song_key('local',path=path) if path else None,
+                title=(metadata.value(QMediaMetaData.Title) or Path(path).stem) if path else '',artist=artist if path else '',playing=self.player.playbackState()==QMediaPlayer.PlayingState,
+                duration=self.player.duration()/1000,position=self.player.position()/1000,
+                can_toggle=bool(path or tracks),can_previous=bool(tracks),can_next=bool(tracks),
+                can_seek=self.player.duration()>0,status='本地唱片架')
+        info=self.cloud_info or {}
+        title=info.get('title','');artist=info.get('artist','');album=info.get('album','')
+        known=info.get('kind')=='smtc' and bool(title.strip())
+        duration=max(0,info.get('duration',0))
+        return dict(source=source,key=song_key('cloud',title,artist,album) if known else None,
+            title=title,artist=artist,artwork=info.get('artwork'),playing=info.get('playing'),
+            duration=duration,position=max(0,info.get('position',0)) if duration>0 else None,
+            can_toggle=bool(info.get('can_toggle')),can_previous=bool(info.get('can_previous')),
+            can_next=bool(info.get('can_next')),can_seek=bool(info.get('can_seek') and duration>0),
+            status=('网易云 · 正在播放' if info.get('playing') is True else '网易云 · 已暂停' if info.get('playing') is False else
+                    '网易云 · 播放状态未知') if info else '等待网易云连接 / 正在重新连接')
 
     def focus_from_menu(self):
         if self.pomo.phase == 'idle':
@@ -892,6 +984,17 @@ class Controller(QObject):
         self.pet.say(pack.info.get('bubble',pack.name+'～'))
         self.pet.refresh()
 
+    def configure_music_schedule(self):
+        path=ROOT/'music-policy.json'
+        if not path.is_file():
+            path=ASSETS/'music-policy.json'
+        try:
+            self.animation.configure_music(load_music_policy(path))
+            return []
+        except (OSError,ValueError,TypeError) as exc:
+            self.animation.configure_music(None)
+            return [f'听歌策略未载入：{exc}']
+
     def reload_action_packs(self):
         packs,errors=discover_packs(ASSETS/'actions',ROOT/'actions')
         self.sprites.reload_clips(packs)
@@ -900,6 +1003,7 @@ class Controller(QObject):
         NAMES.update(BASE_NAMES)
         NAMES.update({key:pack.name for key,pack in self.sprites.packs.items()})
         self.animation.configure_actions(self.sprites.packs)
+        self.action_errors+=self.configure_music_schedule()
         if self.animation.mode not in NAMES:
             self.animation.mode=self.store.data['mode']='auto'
         if self.animation.temporary not in set(NAMES)|{'happy'}:
@@ -918,7 +1022,7 @@ class Controller(QObject):
         self.pet.last_signature=None
         self.pet.refresh()
         self.save()
-        issues=errors+self.sprites.pack_errors
+        issues=self.action_errors
         self.tell(f'已载入 {len(self.sprites.packs)} 个动作包。'+('部分素材已跳过：'+'；'.join(issues) if issues else ''))
 
     def set_size(self, value):
@@ -928,6 +1032,7 @@ class Controller(QObject):
         self.panel.size.setValue(value)
         self.panel.size.blockSignals(False)
         self.pet.resize_pet(value)
+        if hasattr(self,'music'): self.music.rescale();self.music.refresh_avatar()
         self.dock.persist()
 
     def set_edge_hide(self, value):
@@ -937,11 +1042,12 @@ class Controller(QObject):
 
     def set_topmost(self, value):
         self.pet.setWindowFlag(Qt.WindowStaysOnTopHint, value)
+        self.music.setWindowFlag(Qt.WindowStaysOnTopHint,value)
         self.dock.label.setWindowFlag(Qt.WindowStaysOnTopHint, value)
         if self.dock.hidden:
             self.dock.label.show()
         else:
-            self.pet.show()
+            self.dock.pet.show()
         self.setting('topmost', value)
 
     def set_volume(self, value):
@@ -962,6 +1068,8 @@ class Controller(QObject):
         self.panel.music_pages.blockSignals(False)
         self.sync_playing()
         self.update_capture()
+        self.music_state.cloud_owned=source=='cloud'
+        if hasattr(self,'music') and self.music_state.active: self.music.refresh()
 
     def set_system_audio(self, value):
         self.setting('system_audio', value)
@@ -1069,6 +1177,9 @@ class Controller(QObject):
         self.render_cloud(snapshot.get('error', ''))
         self.sync_playing()
         self.update_capture()
+
+        self.observe_music_client(snapshot)
+        if self.music_state.active: self.music.refresh()
 
     @Slot(int)
     def select_cloud(self, index):
@@ -1365,6 +1476,7 @@ class Controller(QObject):
         self.panel.phase.setText({'idle': '准备专注', 'focus': '专注时间', 'rest': '休息时间'}[self.pomo.phase]
                                  + (' · 已暂停' if self.pomo.paused else ''))
         self.panel.action_label.setText('当前动作：' + NAMES.get(self.animation.state(), '摸头 · 开心'))
+        if self.music_state.active: self.music.refresh()
         if running:
             self.next_reminder = now + self.store.data['interval'] * 60
         elif self.store.data['reminders'] and now >= self.next_reminder:
@@ -1392,10 +1504,12 @@ class Controller(QObject):
             self.tray.hide()
             self.panel.hide()
             self.pet.hide()
+            self.music.hide()
         if any(worker and worker.isRunning() for worker in (self.scanner, self.media, self.system_worker)):
             QTimer.singleShot(100, self.quit)
             return
         self.pet.close()
+        self.music.close()
         self.panel.close()
         self.app.quit()
 
@@ -1425,6 +1539,37 @@ def main():
         c.play(len(c.store.data['tracks']) - 1)
         edge_result = {}
         video_result = {}
+        player_result = {}
+        if '--player-check' in sys.argv:
+            from lyrics import parse_lyrics
+            original_position=QPoint(c.pet.pos())
+            QTimer.singleShot(100,c.enter_music_mode)
+            def capture_music_pet():
+                c.music.refresh()
+                player_result.update(music_pet_visible=c.music.isVisible(),pet_not_duplicated=not c.pet.isVisible(),
+                    avatar_visible=bool(c.music.actor.pixmap()) and not c.music.actor.pixmap().isNull())
+                c.music.grab().save(str(output/'build-music-pet.png'))
+                c.music.document=parse_lyrics('[00:00]和唯一起听歌\n[00:01]慢慢来，也很好')
+                c.music.populate_lyrics();c.music.refresh()
+                player_result['lyrics_hidden']=c.music.last_lyric is None and '和唯一起听歌' not in c.music.current.text()
+                player_result['song_title_visible']=c.music.current.text()==c.music.song['title']
+                player_result['transparent_surface']=c.music.testAttribute(Qt.WA_TranslucentBackground) and not c.music.mask().isEmpty()
+                player_result['song_info_below_character']=c.music.current.y()>=c.music.actor.geometry().bottom()
+                player_result['bubbles_on_left']=all(button.geometry().right()<c.music.actor.x() for button in c.music.buttons)
+            def capture_lyrics():
+                player_result['song_info_visible']=c.music.current.isVisible()
+                c.music.grab().save(str(output/'build-music-lyrics.png'))
+                c.dock.target_screen=c.music.screen();c.dock.collapse('right')
+            def restore_player():
+                player_result.update(hidden_only_label=c.dock.hidden and c.dock.label.isVisible() and not c.music.isVisible() and not c.pet.isVisible(),
+                    animation_stopped=not c.pet.animation_timer.isActive(),music_continues=c.player.playbackState()==QMediaPlayer.PlayingState)
+                c.dock.restore(animated=False)
+                player_result['restored_player']=c.music.isVisible() and not c.pet.isVisible()
+                c.leave_music_mode()
+                player_result['returned_pet']=c.pet.isVisible() and not c.music.isVisible() and c.pet.pos()==original_position
+            QTimer.singleShot(300,capture_music_pet)
+            QTimer.singleShot(650,capture_lyrics)
+            QTimer.singleShot(1000,restore_player)
         if '--video-check' in sys.argv:
             def capture_video_action(key):
                 c.pet.refresh()
@@ -1484,6 +1629,33 @@ def main():
                 result.update(edge_result, edge_restored=not c.dock.inactive and c.pet.isVisible())
             if video_result:
                 result['video_actions'] = video_result
+            if player_result: result['music_view']=player_result
+            if '--music-check' in sys.argv:
+                import random
+                for profile in ('normal','weak'):
+                    clock=[0.]
+                    animation=Animation(lambda:clock[0],random.Random(42))
+                    animation.configure_actions(c.sprites.packs)
+                    animation.configure_music(c.animation.music_policy)
+                    animation.music_intensity.profile=profile
+                    animation.playing=True
+                    animation.state()
+                    clock[0]=1.01
+                    previous=animation.state()
+                    finish=clock[0]+10800
+                    changes=0
+                    while clock[0]<finish:
+                        clock[0]=min(animation._deadline,finish)
+                        state=animation.state()
+                        changes+=state!=previous
+                        previous=state
+                    total=sum(animation.music_spent.values())
+                    prefix='' if profile=='normal' else 'weak_'
+                    result[prefix+'music_time_percent']={key:round(value/total*100,3)
+                        for key,value in animation.music_spent.items()}
+                    result[prefix+'music_changes_per_hour']=round(changes/3,2)
+                result['action_errors']=c.action_errors
+                result['music_policy_loaded']=c.animation.music_policy is not None
             (output / 'build-check.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
             c.panel.grab().save(str(output / 'build-panel.png'))
             r = c.pet.geometry()
@@ -1491,6 +1663,7 @@ def main():
                 str(output / 'build-desktop.png'))
             c.quit()
         delay=2300 if live_check else 1200
+        if '--player-check' in sys.argv: delay=max(delay,1800)
         if '--video-check' in sys.argv:
             delay=max(delay,600+len(c.sprites.clips)*200)
         QTimer.singleShot(delay, record)

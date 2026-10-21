@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>唯 · 气泡歌词预览</title>
+<style>
+:root{font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif;color:#425044;--paper:#fffdf3;--line:#bcc9ad;--accent:#9b493f}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#edf0e6;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 14% 5%,#fff9e9 0,transparent 52%),radial-gradient(ellipse at 88% 88%,#d9e3cd 0,transparent 58%)}
+button{font:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}button:focus-visible{outline:2px solid #9b493f;outline-offset:5px}
+header{position:relative;padding:28px 36px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.brand{font-size:13px;letter-spacing:.13em;color:#63725e}.brand span{display:block;margin-top:8px;font-size:11px;letter-spacing:.04em;color:#8c9585}
+.view-toggle{border:1px solid #cbd3c1;border-radius:18px;padding:8px 13px;background:#ffffff70;color:#66735e;font-size:12px}
+main{position:relative;min-height:calc(100vh - 150px);display:grid;place-items:center;padding:22px 20px 54px}
+.companion{width:340px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;align-items:center;position:relative;isolation:isolate}
+.speech{width:284px;max-width:100%;position:relative;min-height:14px;margin-bottom:-8px;padding:0;border:0;background:transparent;text-align:center;z-index:2;cursor:grab;touch-action:none;user-select:none}
+.listening{display:flex;align-items:center;justify-content:center;gap:7px;color:#795133;font-size:11px;font-weight:600;line-height:14px;letter-spacing:.04em;text-shadow:0 1px 2px #fffdf3d0}
+.head-effects{display:inline-flex;align-items:center;justify-content:center;gap:2px;height:12px;color:#b18446;pointer-events:none}
+.head-effects i{width:2px;height:10px;border-radius:2px;background:currentColor;transform-origin:center;animation:head-beat 1.1s ease-in-out infinite}
+.head-effects i:nth-child(2){height:7px;animation-delay:-.35s}.head-effects i:nth-child(3){height:11px;animation-delay:-.7s}
+.head-effects.right{transform:scaleX(-1)}
+@keyframes head-beat{0%,100%{transform:scaleY(.3);opacity:.65}50%{transform:scaleY(1);opacity:1}}
+.paused .head-effects i{animation-play-state:paused}
+.subtitles{width:320px;max-width:100%;margin-top:8px;text-align:center;background:transparent;border:0;cursor:grab;touch-action:none;user-select:none}
+.line{font-family:"SimSun","Songti SC",serif;font-size:13px;line-height:1.8;letter-spacing:1px;font-weight:600;min-height:24px;color:#edf0e6;text-shadow:0 1px 2px #4f593daa;transition:opacity .16s,transform .16s}
+.next-line{font-family:"SimSun","Songti SC",serif;font-size:10px;line-height:1.7;letter-spacing:.5px;margin-top:2px;min-height:17px;color:#edf0e6;text-shadow:0 1px 2px #4f593d90}
+.line.changing{opacity:0;transform:translateY(3px)}
+.character{width:284px;height:277px;display:flex;align-items:flex-end;justify-content:center;margin-top:0;position:relative}
+.character img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 5px 4px #3f35230c);user-select:none;-webkit-user-drag:none;cursor:grab;touch-action:none}
+.character img.pat{animation:pat .4s ease-in-out}@keyframes pat{50%{transform:rotate(-2deg) translateY(3px)}}
+.controls{position:absolute;left:0;top:53%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;padding:10px 4px;background:transparent;border:0;z-index:3}
+.controls button{--bubble:#fff0c8;display:grid;place-items:center;position:relative;left:var(--bubble-x,0px);top:var(--bubble-y,0px);width:34px;height:34px;background:radial-gradient(circle at 27% 23%,#fffef9ed 0%,#fffef950 28%,var(--bubble) 82%);border:0;color:#a4864e;border-radius:50%;box-shadow:inset 1px 1px 3px #ffffffb0,inset -1px -2px 3px #8c8f7215,0 3px 8px #705e350b;transition:filter .2s;touch-action:none;user-select:none;animation:bubble-float 4.8s ease-in-out infinite}
+.controls button::after{content:"";position:absolute;right:6px;bottom:5px;width:4px;height:3px;background:#fffdf580;border-radius:50%;transform:rotate(-35deg);pointer-events:none}
+.controls button::before{content:"";position:absolute;top:6px;left:6px;width:8px;height:4px;border-radius:50%;background:#ffffffa0;transform:rotate(-35deg);pointer-events:none}
+.controls button:hover{filter:brightness(1.04)}
+.controls .play{--bubble:#f6dcd1;width:37px;height:37px;color:#b75d4b;animation-delay:-1.7s}
+.controls #next{--bubble:#e5ebd7;color:#829368;animation-delay:-3.2s}
+@keyframes bubble-float{0%,100%{transform:translate(0,3px)}50%{transform:translate(-3px,-5px)}}
+.controls:hover button,.controls.is-hovered button,.controls button:focus-visible,.controls.is-held button{animation-play-state:paused}
+.dragging,.character img.dragging{cursor:grabbing!important}.controls button.dragging{filter:brightness(1.04);z-index:5}
+.companion{transform:translate(var(--pet-x,0px),var(--pet-y,0px))}
+svg{width:13px;height:13px;display:block}.play svg{width:14px;height:14px}
+.song-name{margin-top:11px;border:0;background:transparent;color:#72816a;font-size:11px;letter-spacing:.02em;padding:3px 8px;border-radius:8px}.song-name:hover{background:#ffffff80}
+.hint{position:relative;text-align:center;color:#929b89;font-size:11px;line-height:1.9;padding:0 20px 21px}
+.only-pet header,.only-pet .hint{visibility:hidden}.only-pet main{min-height:calc(100vh - 150px)}
+.only-pet{background:#e6e9e0}.only-pet::before{opacity:.25}
+.toast{position:absolute;top:122px;right:-14px;font-size:12px;color:#9b493f;opacity:0;transform:translateY(8px);transition:all .25s;pointer-events:none}.toast.on{opacity:1;transform:translateY(0)}
+@media(max-height:650px){header{padding:16px 28px}main{padding-top:6px;padding-bottom:20px;min-height:calc(100vh - 116px)}.character{width:235px;height:226px}.hint{padding-bottom:12px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+ <div class="brand">放课后 / 歌词陪伴<span>MV 字幕 · 左侧漂浮气泡</span></div>
+ <button class="view-toggle" id="viewToggle" title="按 Esc 恢复预览说明">仅看桌宠</button>
+</header>
+<main>
+ <section class="companion" id="companion" aria-label="平泽唯音乐桌宠">
+  <div class="speech" aria-live="polite">
+   <div class="listening">
+    <span class="head-effects left" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span id="state">正在听歌</span>
+    <span class="head-effects right" aria-hidden="true"><i></i><i></i><i></i></span>
+   </div>
+  </div>
+  <div class="character"><img id="pet" src="frames/000.png" alt="平泽唯弹吉他唱歌"></div>
+  <div class="subtitles" aria-live="polite" aria-label="MV 歌词字幕">
+   <div class="line" id="lyric">把今天的心事，唱进旋律里</div>
+   <div class="next-line" id="nextLyric">风也跟着轻轻摇晃</div>
+  </div>
+  <div class="toast" id="toast">嘿嘿，一起听歌吧 ♡</div>
+  <div class="controls" aria-label="音乐控制">
+   <button id="previous" aria-label="上一首" title="上一首"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5h2v14H5zm14 0v14L8 12z"/></svg></button>
+   <button class="play" id="play" aria-label="暂停" title="暂停"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg></button>
+   <button id="next" aria-label="下一首" title="下一首"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 5h2v14h-2zM5 5v14l11-7z"/></svg></button>
+  </div>
+  <button class="song-name" id="songName" title="点击切换示范歌曲">放课后的练习曲 · 示范歌曲</button>
+ </section>
+</main>
+<div class="hint">左侧气泡轻轻漂浮，鼠标移入即静止，移开后继续。<br>拖动角色移动整体，气泡也可单独拖动；示范歌词，未连接网易云。</div>
+<script src="pet-timings.js"></script>
+<script>
+const songs=[
+ {title:'放课后的练习曲',lines:['把今天的心事，唱进旋律里','风也跟着轻轻摇晃','慢一点也没关系','这一刻，和你一起听']},
+ {title:'午后的茶与风',lines:['阳光停在窗边，等一杯热茶','把烦恼放下，就这一小会儿','听风从琴弦之间经过','今天，也要好好休息呀']},
+ {title:'一起练习吧',lines:['再试一次，把勇气弹响','不完美的音符，也闪着光','你翻开下一页，我唱下一句','放课后，我们一起出发']}
+];
+let track=0,line=0,playing=true,last=Date.now(),patUntil=0,petTime=0,petLast=performance.now(),petFrame=-1;
+const $=id=>document.getElementById(id);
+const ends=[];let total=0;window.petTimings.forEach(ms=>{total+=ms;ends.push(total)});
+const frames=ends.map((_,i)=>{const image=new Image();image.src='frames/'+String(i).padStart(3,'0')+'.png';return image;});
+function animatePet(now){
+ const delta=Math.min(100,now-petLast);petLast=now;if(playing)petTime=(petTime+delta)%total;
+ const frame=ends.findIndex(end=>petTime<end);
+ if(frame!==petFrame&&frames[frame].complete){$('pet').src=frames[frame].src;petFrame=frame;}
+ requestAnimationFrame(animatePet);
+}
+requestAnimationFrame(animatePet);
+function renderLine(animate=true){
+ const current=songs[track];$('songName').textContent=current.title+' · 示范歌曲';
+ const apply=()=>{$('lyric').textContent=current.lines[line];$('nextLyric').textContent=current.lines[(line+1)%current.lines.length];$('lyric').classList.remove('changing');};
+ if(animate){$('lyric').classList.add('changing');setTimeout(apply,150)}else apply();
+}
+function step(delta){track=(track+delta+songs.length)%songs.length;line=0;last=Date.now();renderLine();}
+$('previous').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('songName').onclick=()=>step(1);
+$('play').onclick=()=>{
+ playing=!playing;last=Date.now();$('companion').classList.toggle('paused',!playing);
+ $('state').textContent=playing?'正在听歌':'已暂停';
+ $('play').setAttribute('aria-label',playing?'暂停':'播放');$('play').title=playing?'暂停':'播放';
+ $('play').innerHTML=playing?'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg>':'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+};
+$('pet').onclick=()=>{$('pet').classList.remove('pat');void $('pet').offsetWidth;$('pet').classList.add('pat');$('toast').classList.add('on');patUntil=Date.now()+1800;};
+$('viewToggle').onclick=()=>document.body.classList.add('only-pet');
+document.addEventListener('keydown',event=>{if(event.key==='Escape')document.body.classList.remove('only-pet');});
+setInterval(()=>{if(playing&&Date.now()-last>=5200){line=(line+1)%songs[track].lines.length;last=Date.now();renderLine();}if(Date.now()>patUntil)$('toast').classList.remove('on');},150);
+renderLine(false);
+const positions=new Map();
+function applyPosition(element,x,y,whole){
+ positions.set(element,{x,y});
+ element.style.setProperty(whole?'--pet-x':'--bubble-x',x+'px');
+ element.style.setProperty(whole?'--pet-y':'--bubble-y',y+'px');
+}
+function draggable(handle,element,whole=false){
+ let drag=null,suppressUntil=0;
+ handle.addEventListener('pointerdown',event=>{
+  if(event.button!==0)return;
+  const controls=handle.closest('.controls');if(controls)controls.classList.add('is-held');
+  const offset=positions.get(element)||{x:0,y:0};
+  drag={id:event.pointerId,sx:event.clientX,sy:event.clientY,...offset,rect:element.getBoundingClientRect(),moved:false};
+  try{handle.setPointerCapture(event.pointerId)}catch(_){}
+ });
+ handle.addEventListener('pointermove',event=>{
+  if(!drag||event.pointerId!==drag.id)return;
+  let dx=event.clientX-drag.sx,dy=event.clientY-drag.sy;
+  if(!drag.moved&&Math.hypot(dx,dy)<5)return;
+  drag.moved=true;handle.classList.add('dragging');
+  dx=Math.max(12-drag.rect.left,Math.min(dx,innerWidth-12-drag.rect.right));
+  dy=Math.max(12-drag.rect.top,Math.min(dy,innerHeight-12-drag.rect.bottom));
+  applyPosition(element,drag.x+dx,drag.y+dy,whole);event.preventDefault();
+ });
+ const finish=event=>{
+  if(!drag||event.pointerId!==drag.id)return;
+  if(drag.moved)suppressUntil=performance.now()+250;
+  drag=null;handle.classList.remove('dragging');
+  const controls=handle.closest('.controls');if(controls)controls.classList.remove('is-held');
+  try{handle.releasePointerCapture(event.pointerId)}catch(_){}
+ };
+ handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);
+ handle.addEventListener('click',event=>{if(performance.now()<suppressUntil){event.preventDefault();event.stopImmediatePropagation();}},true);
+ handle.addEventListener('dragstart',event=>event.preventDefault());
+}
+draggable($('pet'),$('companion'),true);
+draggable(document.querySelector('.speech'),$('companion'),true);
+draggable(document.querySelector('.subtitles'),$('companion'),true);
+['previous','play','next'].forEach(id=>{draggable($(id),$(id));$(id).title+=' · 拖动可移位';});
+const bubbleControls=document.querySelector('.controls');
+bubbleControls.addEventListener('pointerenter',()=>bubbleControls.classList.add('is-hovered'));
+bubbleControls.addEventListener('pointerleave',()=>bubbleControls.classList.remove('is-hovered'));
+function resetPositions(){applyPosition($('companion'),0,0,true);['previous','play','next'].forEach(id=>applyPosition($(id),0,0,false));}
+document.addEventListener('dblclick',event=>{if(event.target===document.body||event.target.tagName==='MAIN')resetPositions();});
+window.addEventListener('resize',resetPositions);
+window.previewState=()=>({track,line,playing,lyric:$('lyric').textContent,petLoaded:$('pet').complete&&$('pet').naturalWidth>0});
+</script>
+</body>
+</html>
